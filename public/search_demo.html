@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unified Search Demo</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        #search-container {
+            margin-bottom: 20px;
+        }
+
+        #search-input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .post {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
+
+        .post-title {
+            font-size: 1.25em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .post-body {
+            margin-bottom: 10px;
+        }
+
+        .tags {
+            font-size: 0.9em;
+            color: #555;
+        }
+
+        .tag {
+            cursor: pointer;
+            color: blue;
+            text-decoration: underline;
+            margin-right: 5px;
+        }
+
+        .highlight {
+            background-color: yellow;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>OldWorld API Search Demo</h1>
+
+    <div id="auth-container"
+        style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9;">
+        <div id="login-section">
+            <h3>Login</h3>
+            <input type="email" id="email-input" placeholder="Email" style="padding: 8px; margin-right: 10px;">
+            <input type="password" id="password-input" placeholder="Password" style="padding: 8px; margin-right: 10px;">
+            <button onclick="login()" style="padding: 8px 15px; cursor: pointer;">Login</button>
+            <p style="font-size: 0.9em; color: #666; margin-top: 10px;">Don't have an account? Register first via API
+            </p>
+        </div>
+        <div id="user-section" style="display: none;">
+            <p>Logged in as: <strong id="user-email"></strong></p>
+            <button onclick="logout()" style="padding: 8px 15px; cursor: pointer;">Logout</button>
+        </div>
+    </div>
+
+    <div id="create-post-container"
+        style="display: none; margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f0f8ff;">
+        <h3>Create New Post</h3>
+        <input type="text" id="post-title" placeholder="Post Title"
+            style="width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box;">
+        <textarea id="post-body" placeholder="Post Body" rows="4"
+            style="width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box;"></textarea>
+        <button onclick="createPost()"
+            style="padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 3px;">Submit
+            Post</button>
+        <span id="create-status" style="margin-left: 10px; font-weight: bold;"></span>
+    </div>
+
+    <div id="search-container">
+        <input type="text" id="search-input" placeholder="Search by keyword or #tag..." oninput="debounceSearch()">
+    </div>
+
+    <div id="results">Loading posts...</div>
+
+    <script>
+        const API_URL = 'http://localhost:3001/posts';
+        const LOGIN_URL = 'http://localhost:3001/login';
+        const searchInput = document.getElementById('search-input');
+        const resultsDiv = document.getElementById('results');
+        let timeout = null;
+        let authToken = localStorage.getItem('authToken');
+        let currentUser = null;
+
+        // Check auth status on load
+        checkAuthStatus();
+
+        // Fetch posts initially
+        fetchPosts();
+
+        function debounceSearch() {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                fetchPosts(searchInput.value);
+            }, 300);
+        }
+
+        async function fetchPosts(query = '') {
+            try {
+                let url = API_URL;
+                if (query) {
+                    url += `?q=${encodeURIComponent(query)}`;
+                }
+                const response = await fetch(url);
+                const posts = await response.json();
+                renderPosts(posts, query);
+            } catch (error) {
+                resultsDiv.innerHTML = `<p style="color:red">Error fetching posts: ${error.message}</p>`;
+            }
+        }
+
+        function renderPosts(posts, query) {
+            if (posts.length === 0) {
+                resultsDiv.innerHTML = '<p>No posts found.</p>';
+                return;
+            }
+
+            const isTagSearch = query.trim().startsWith('#');
+            const keyword = isTagSearch ? '' : query.trim();
+
+            resultsDiv.innerHTML = posts.map(post => {
+                const highlightedTitle = highlightText(post.title, keyword);
+                const highlightedBody = highlightText(post.body, keyword);
+
+                const tagsHtml = post.tags ? post.tags.map(tag =>
+                    `<span class="tag" onclick="setSearch('#${tag}')">#${tag}</span>`
+                ).join(' ') : '';
+
+                return `
+                    <div class="post">
+                        <div class="post-title">${highlightedTitle}</div>
+                        <div class="post-body">${highlightedBody}</div>
+                        <div class="tags">Tags: ${tagsHtml}</div>
+                        <small>By: ${post.user_email}</small>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function highlightText(text, keyword) {
+            if (!keyword) return text;
+            const regex = new RegExp(`(${escapeRegExp(keyword)})`, 'gi');
+            return text.replace(regex, '<span class="highlight">$1</span>');
+        }
+
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function setSearch(value) {
+            searchInput.value = value;
+            fetchPosts(value);
+        }
+
+        function checkAuthStatus() {
+            if (authToken) {
+                document.getElementById('login-section').style.display = 'none';
+                document.getElementById('user-section').style.display = 'block';
+                document.getElementById('create-post-container').style.display = 'block';
+                // Get user email from token (simple decode, not secure but works for demo)
+                try {
+                    const payload = JSON.parse(atob(authToken.split('.')[1]));
+                    // We'll set this properly after login
+                    if (currentUser) {
+                        document.getElementById('user-email').textContent = currentUser.email;
+                    }
+                } catch (e) {
+                    console.error('Invalid token');
+                }
+            } else {
+                document.getElementById('login-section').style.display = 'block';
+                document.getElementById('user-section').style.display = 'none';
+                document.getElementById('create-post-container').style.display = 'none';
+            }
+        }
+
+        async function login() {
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+
+            if (!email || !password) {
+                alert('Please enter email and password');
+                return;
+            }
+
+            try {
+                const response = await fetch(LOGIN_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.token;
+                    currentUser = data.user;
+                    localStorage.setItem('authToken', authToken);
+                    document.getElementById('user-email').textContent = currentUser.email;
+                    checkAuthStatus();
+                    alert('Login successful!');
+                } else {
+                    alert('Login failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Login error: ' + error.message);
+            }
+        }
+
+        function logout() {
+            authToken = null;
+            currentUser = null;
+            localStorage.removeItem('authToken');
+            checkAuthStatus();
+            document.getElementById('email-input').value = '';
+            document.getElementById('password-input').value = '';
+        }
+
+        async function createPost() {
+            const title = document.getElementById('post-title').value;
+            const body = document.getElementById('post-body').value;
+            const statusSpan = document.getElementById('create-status');
+
+            if (!title || !body) {
+                statusSpan.textContent = 'Please fill in all fields';
+                statusSpan.style.color = 'red';
+                return;
+            }
+
+            if (!authToken) {
+                statusSpan.textContent = 'Please login first';
+                statusSpan.style.color = 'red';
+                return;
+            }
+
+            statusSpan.textContent = 'Creating...';
+            statusSpan.style.color = 'blue';
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ post: { title, body } })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusSpan.textContent = 'Post created!';
+                    statusSpan.style.color = 'green';
+
+                    // Clear form
+                    document.getElementById('post-title').value = '';
+                    document.getElementById('post-body').value = '';
+
+                    // Add post to feed instantly at the top
+                    prependPostToFeed(data);
+
+                    // Clear status after 3 seconds
+                    setTimeout(() => {
+                        statusSpan.textContent = '';
+                    }, 3000);
+                } else {
+                    statusSpan.textContent = 'Error: ' + (data.error || 'Failed to create post');
+                    statusSpan.style.color = 'red';
+                }
+            } catch (error) {
+                statusSpan.textContent = 'Error: ' + error.message;
+                statusSpan.style.color = 'red';
+            }
+        }
+
+        function prependPostToFeed(post) {
+            const tagsHtml = post.tags && post.tags.length > 0 ? post.tags.map(tag =>
+                `<span class="tag" onclick="setSearch('#${tag}')">#${tag}</span>`
+            ).join(' ') : 'None';
+
+            const postHtml = `
+                <div class="post" style="border-color: #007bff; background: #f0f8ff;">
+                    <div class="post-title">${post.title}</div>
+                    <div class="post-body">${post.body}</div>
+                    <div class="tags">Tags: ${tagsHtml}</div>
+                    <small>By: ${post.user_email}</small>
+                </div>
+            `;
+
+            // Insert at the beginning of results
+            resultsDiv.insertAdjacentHTML('afterbegin', postHtml);
+        }
+    </script>
+
+</body>
+
+</html>
