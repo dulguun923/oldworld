@@ -8,8 +8,10 @@ class PostsController < ApplicationController
         id: p.id,
         title: p.title,
         body: p.body,
+        user: p.user.username || p.user.email.split('@')[0],
         user_email: p.user.email,
-        user_avatar_url: p.user.avatar_url,
+        user_avatar: p.user.avatar_url,
+        image: p.image,
         tags: p.tags.map(&:name),
         comments_count: p.comments.count,
         shares_count: p.shares.count,
@@ -26,8 +28,10 @@ class PostsController < ApplicationController
         id: post.id,
         title: post.title,
         body: post.body,
+        user: @current_user.username || @current_user.email.split('@')[0],
         user_email: @current_user.email,
-        user_avatar_url: @current_user.avatar_url,
+        user_avatar: @current_user.avatar_url,
+        image: post.image,
         tags: post.tags.map(&:name),
         comments_count: 0,
         shares_count: 0,
@@ -42,6 +46,6 @@ class PostsController < ApplicationController
   private
 
   def post_params
-    params.require(:post).permit(:title, :body)
+    params.require(:post).permit(:title, :body, :image)
   end
 end
